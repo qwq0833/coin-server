@@ -3,6 +3,7 @@ import axios, { AxiosError } from 'axios';
 import AdmZip from 'adm-zip';
 import path from 'path';
 import fs from 'fs/promises';
+import dayjs from 'dayjs';
 
 const router = Router();
 
@@ -52,16 +53,34 @@ const getKlines = async (date: string) => {
 };
 
 router.get('/', async (req: Request, res: Response) => {
-  const { from } = req.query;
+  const from = String(req.query.from ?? '');
   if (!from) {
     return res.status(400).json({ errMessage: 'Missing from parameter' });
   }
 
   try {
-    const klines = await getKlines(String(from));
-    if (!klines) {
-      return res.status(404).json({ errMessage: 'Not Found' });
+    const fromTimestamp = new Date(from).getTime();
+
+    // 结束日期为空时, 默认等于开始日期
+    const to = String(req.query.to ?? '');
+    const toTimestamp = to ? new Date(to).getTime() : fromTimestamp;
+    const toDay = dayjs(toTimestamp);
+
+    // 从开始日期开始获取 K 线数据
+    let currentDay = dayjs(fromTimestamp);
+    const klines: any = [];
+
+    while (!currentDay.isAfter(toDay)) {
+      const data = await getKlines(currentDay.format('YYYY-MM-DD'));
+      if (!data) {
+        return res.status(404).json({ errMessage: 'Not Found' });
+      }
+      klines.push(...data);
+
+      // 更新下一天的日期
+      currentDay = currentDay.add(1, 'day');
     }
+
     return res.json({ klines });
   } catch (error) {
     res.status(500).json({ errMessage: 'Internal Server Error' });
