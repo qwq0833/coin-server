@@ -11,7 +11,7 @@ const router = Router();
  * 获取 K 线数据
  * @param date 日期, 格式: YYYY-MM-DD
  */
-const getKlines = async (date: string) => {
+const getKlines = async (date: string): Promise<KlineRow[] | null> => {
   try {
     const filename = `ETHBUSD-1m-${date}`;
     const cachePath = path.join(__dirname, '..', '..', 'cache', `${filename}.json`);
@@ -37,7 +37,10 @@ const getKlines = async (date: string) => {
       }
 
       const data = zip.readAsText(csv);
-      klines = data.split('\n').map(line => line.split(',').map(item => parseFloat(item)));
+      klines = data
+        .split('\n')
+        .filter(line => Boolean(line))
+        .map(line => line.split(',').map(item => parseFloat(item)));
 
       // 写到缓存文件
       await fs.writeFile(cachePath, JSON.stringify(klines));
@@ -68,7 +71,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     // 从开始日期开始获取 K 线数据
     let currentDay = dayjs(fromTimestamp);
-    const klines: any = [];
+    const klines: KlineRow[] = [];
 
     while (!currentDay.isAfter(toDay)) {
       const data = await getKlines(currentDay.format('YYYY-MM-DD'));
