@@ -11,7 +11,9 @@ router.get('/', async (req: Request, res: Response) => {
   if (!req.query.start) return res.status(400).json({ errMessage: 'Missing start parameter' });
   if (!req.query.end) return res.status(400).json({ errMessage: 'Missing end parameter' });
   if (!req.query.principal) return res.status(400).json({ errMessage: 'Missing principal parameter' });
-  if (!req.query.interval) return res.status(400).json({ errMessage: 'Missing interval parameter' });
+  if (!req.query.interval && !(req.query.start_interval && req.query.end_interval)) {
+    return res.status(400).json({ errMessage: 'Missing interval (Or both start_interval, end_interval) parameter' });
+  }
   if (!req.query.deficit) return res.status(400).json({ errMessage: 'Missing deficit parameter' });
 
   // 开始日期和结束日期 (格式: YYYY-MM-DD)
@@ -26,19 +28,28 @@ router.get('/', async (req: Request, res: Response) => {
 
   // 交易间隔 (BUSD)
   const interval = Number(req.query.interval);
+  const startInterval = Number(req.query.start_interval);
+  const endInterval = Number(req.query.end_interval);
   // 最大浮动亏损 (BUSD)
   const deficit = Number(req.query.deficit);
-
-  // 仓位数量 = 浮动价格 / 交易间隔
-  const positionCount = Math.floor(deficit / interval);
-  // 仓位数额 (BUSD) = 总资产 / 仓位数量
-  const positionAmount = Math.floor(totalAsset / positionCount);
 
   // 获取 K 线数据
   const { data } = await axios.get('http://localhost:18700/klines', { params: { from: start, to: end } });
   const klines = data.klines as KlineRow[];
 
-  const transaction = gridSimulate(klines, interval, positionAmount);
+  // 模拟交易
+  const summaries = [];
+  if (interval) {
+    const summary = startGridSimulate(klines, interval, deficit, totalAsset, duration);
+    summaries.push(summary);
+  } else {
+    for (let i = startInterval; i <= endInterval; i++) {
+      const summary = startGridSimulate(klines, i, deficit, totalAsset, duration);
+      // @ts-ignore
+      delete summary.transaction;
+      summaries.push(summary);
+    }
+  }
 
   return res.json({
     params: {
@@ -47,14 +58,33 @@ router.get('/', async (req: Request, res: Response) => {
       duration: `${duration} 天`,
       principal: `${principal} BUSD`,
       totalAsset: `${totalAsset} BUSD`,
-      interval: `${interval} BUSD`,
       deficit: `${deficit} BUSD`,
-      positionCount,
-      positionAmount: `${positionAmount} BUSD`
+      interval: interval ? `${interval} BUSD` : `${startInterval} ~ ${endInterval} BUSD`
     },
-    ...summary(transaction, duration, deficit)
+    summaries
   });
 });
+
+const startGridSimulate = (
+  klines: KlineRow[],
+  interval: number,
+  deficit: number,
+  totalAsset: number,
+  duration: number
+) => {
+  // 仓位数量 = 浮动价格 / 交易间隔
+  const positionCount = Math.floor(deficit / interval);
+  // 仓位数额 (BUSD) = 总资产 / 仓位数量
+  const positionAmount = Math.floor(totalAsset / positionCount);
+
+  const transaction = gridSimulate(klines, interval, positionAmount);
+  return {
+    interval: `${interval} BUSD`,
+    positionCount,
+    positionAmount: `${positionAmount} BUSD`,
+    ...summary(transaction, duration, deficit)
+  };
+};
 
 /**
  * K 线数据转换为对象格式
