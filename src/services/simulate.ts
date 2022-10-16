@@ -19,7 +19,7 @@ router.get('/', async (req: Request, res: Response) => {
   // 开始日期和结束日期 (格式: YYYY-MM-DD)
   const start = String(req.query.start ?? '');
   const end = String(req.query.end ?? '');
-  const duration = dayjs(`${end}`).diff(dayjs(`${start}`), 'day');
+  const duration = dayjs(`${end}`).diff(dayjs(`${start}`), 'day') + 1;
 
   // 本金 (BUSD)
   const principal = Number(req.query.principal);
@@ -45,11 +45,11 @@ router.get('/', async (req: Request, res: Response) => {
   // 模拟交易
   const summaries = [];
   if (interval) {
-    const summary = startGridSimulate(klines, startPrice, interval, deficit, totalAsset, duration);
+    const summary = startGridSimulate(klines, startPrice, interval, deficit, totalAsset, duration, principal);
     summaries.push(summary);
   } else {
     for (let i = startInterval; i <= endInterval; i++) {
-      const summary = startGridSimulate(klines, startPrice, i, deficit, totalAsset, duration);
+      const summary = startGridSimulate(klines, startPrice, i, deficit, totalAsset, duration, principal);
       // @ts-ignore
       delete summary.transaction;
       summaries.push(summary);
@@ -78,7 +78,8 @@ const startGridSimulate = (
   interval: number,
   deficit: number,
   totalAsset: number,
-  duration: number
+  duration: number,
+  principal: number
 ) => {
   // 仓位数量 = 浮动价格 / 交易间隔
   const positionCount = Math.floor(deficit / interval);
@@ -90,7 +91,7 @@ const startGridSimulate = (
     interval: `${interval} BUSD`,
     positionCount,
     positionAmount: `${positionAmount} BUSD`,
-    ...summary(transaction, duration, deficit)
+    ...summary(transaction, duration, principal)
   };
 };
 
@@ -184,8 +185,9 @@ const gridSimulate = (klines: KlineRow[], startPrice: number, interval: number, 
  * 统计交易结果
  * @param transaction 交易记录
  * @param duration 交易时长 (天)
+ * @param principal 本金 (BUSD)
  */
-const summary = (transaction: Transaction[], duration: number, deficit: number) => {
+const summary = (transaction: Transaction[], duration: number, principal: number) => {
   // 交易次数
   const count = transaction.length;
   // 已完成交易次数
@@ -201,16 +203,27 @@ const summary = (transaction: Transaction[], duration: number, deficit: number) 
   const uncompletedProfit = parseFloat(
     (transaction.filter(trade => !trade.sell).reduce((total, trade) => total + trade.meta.profit, 0) * 7.1).toFixed(2)
   );
+  // 总收益 (CNY)
+  const totalProfit = parseFloat((completedProfit + uncompletedProfit).toFixed(2));
+
+  // 风险率 = (3 * 本金 + 总收益) / (2 * 本金)
+  const riskRate = parseFloat(((3 * principal + totalProfit) / (2 * principal)).toFixed(2));
+  // 总收益率 = 总收益 / 本金
+  const totalProfitRate = parseFloat(((totalProfit / 7.1 / principal) * 100).toFixed(2));
 
   return {
     summary: {
       count: `${count} 笔`,
       completedCount: `${completedCount} 笔`,
-      completedProfit: `${completedProfit} 元`,
       uncompletedCount: `${uncompletedCount} 笔`,
+      countPerday: `${Math.floor(count / duration)} 笔/天`,
+      totalProfit: `${totalProfit} 元`,
+      completedProfit: `${completedProfit} 元`,
       uncompletedProfit: `${uncompletedProfit} 元`,
-      totalProfit: `${parseFloat((completedProfit + uncompletedProfit).toFixed(2))} 元`,
-      averageProfit: `${parseFloat(((completedProfit + uncompletedProfit) / duration).toFixed(2))} 元/天`
+      averageProfit: `${parseFloat((totalProfit / duration).toFixed(2))} 元/天`,
+      totalProfitRate: `${totalProfitRate}%`,
+      averageProfitRate: `${parseFloat((totalProfitRate / duration).toFixed(2))}%/天`,
+      riskRate
     },
     transaction
   };
