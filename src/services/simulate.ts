@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 const router = Router();
 
 /**
- * 模拟限制浮动亏损的交易
+ * 模拟预期最低价格的交易
  */
 router.get('/', async (req: Request, res: Response) => {
   if (!req.query.start) return res.status(400).json({ errMessage: 'Missing start parameter' });
@@ -14,7 +14,7 @@ router.get('/', async (req: Request, res: Response) => {
   if (!req.query.interval && !(req.query.start_interval && req.query.end_interval)) {
     return res.status(400).json({ errMessage: 'Missing interval (Or both start_interval, end_interval) parameter' });
   }
-  if (!req.query.deficit) return res.status(400).json({ errMessage: 'Missing deficit parameter' });
+  if (!req.query.floor_price) return res.status(400).json({ errMessage: 'Missing floor_price parameter' });
 
   // 开始日期和结束日期 (格式: YYYY-MM-DD)
   const start = String(req.query.start ?? '');
@@ -30,21 +30,26 @@ router.get('/', async (req: Request, res: Response) => {
   const interval = Number(req.query.interval);
   const startInterval = Number(req.query.start_interval);
   const endInterval = Number(req.query.end_interval);
-  // 最大浮动亏损 (BUSD)
-  const deficit = Number(req.query.deficit);
+  // 预期最低价格 (BUSD)
+  const floorPrice = Number(req.query.floor_price);
 
   // 获取 K 线数据
   const { data } = await axios.get('http://localhost:18700/klines', { params: { from: start, to: end } });
   const klines = data.klines as KlineRow[];
 
+  // 为了保证随机性和策略的公平性, 建仓价格 (BUSD) = 向下取整数 (第一根 K 线的开盘价 - 1)
+  const startPrice = Math.floor(klines[0][1] - 1);
+  // 最大亏损差额 (BUSD) = 建仓价格 - 预期最低价格
+  const deficit = startPrice - floorPrice;
+
   // 模拟交易
   const summaries = [];
   if (interval) {
-    const summary = startGridSimulate(klines, interval, deficit, totalAsset, duration);
+    const summary = startGridSimulate(klines, startPrice, interval, deficit, totalAsset, duration);
     summaries.push(summary);
   } else {
     for (let i = startInterval; i <= endInterval; i++) {
-      const summary = startGridSimulate(klines, i, deficit, totalAsset, duration);
+      const summary = startGridSimulate(klines, startPrice, i, deficit, totalAsset, duration);
       // @ts-ignore
       delete summary.transaction;
       summaries.push(summary);
@@ -55,10 +60,12 @@ router.get('/', async (req: Request, res: Response) => {
     params: {
       start: `${start} 08:00:00`,
       end: `${end} 08:00:00`,
-      duration: `${duration} 天`,
+      duration: `${duration} 天`, // 🧮
       principal: `${principal} BUSD`,
-      totalAsset: `${totalAsset} BUSD`,
-      deficit: `${deficit} BUSD`,
+      totalAsset: `${totalAsset} BUSD`, // 🧮
+      startPrice: `${startPrice} BUSD`, // 🧮
+      floorPrice: `${floorPrice} BUSD`,
+      deficit: `${deficit} BUSD`, // 🧮
       interval: interval ? `${interval} BUSD` : `${startInterval} ~ ${endInterval} BUSD`
     },
     summaries
@@ -67,6 +74,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 const startGridSimulate = (
   klines: KlineRow[],
+  startPrice: number,
   interval: number,
   deficit: number,
   totalAsset: number,
@@ -77,7 +85,7 @@ const startGridSimulate = (
   // 仓位数额 (BUSD) = 总资产 / 仓位数量
   const positionAmount = Math.floor(totalAsset / positionCount);
 
-  const transaction = gridSimulate(klines, interval, positionAmount);
+  const transaction = gridSimulate(klines, startPrice, interval, positionAmount);
   return {
     interval: `${interval} BUSD`,
     positionCount,
@@ -104,16 +112,14 @@ const getKlineBaseObject = (kline: KlineRow): KlineBase => {
 /**
  * 模拟网格交易
  * @param klines K 线数据
+ * @param startPrice 建仓价格 (BUSD)
  * @param deficit 最大浮动亏损 (BUSD)
  * @param interval 交易间隔 (BUSD)
  * @param positionAmount 仓位数额 (BUSD)
  */
-const gridSimulate = (klines: KlineRow[], interval: number, positionAmount: number) => {
+const gridSimulate = (klines: KlineRow[], startPrice: number, interval: number, positionAmount: number) => {
   // 交易记录
   const transaction: Transaction[] = [];
-
-  // 为了保证随机性和策略的公平性, 建仓价格 (BUSD) = 向下取整数 (第一根 K 线的开盘价 - 1)
-  const startPrice = Math.floor(klines[0][1] - 1);
 
   // 下一次买入价格
   let nextBuyPrice = startPrice;
@@ -198,8 +204,6 @@ const summary = (transaction: Transaction[], duration: number, deficit: number) 
 
   return {
     summary: {
-      startPrice: `${transaction[0].buy.price} BUSD`,
-      floorPrice: `${transaction[0].buy.price - deficit} BUSD`,
       count: `${count} 笔`,
       completedCount: `${completedCount} 笔`,
       completedProfit: `${completedProfit} 元`,
