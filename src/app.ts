@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs/promises';
 import KlinesService from './services/klines';
+import SimulateService from './services/simulate';
 
 const app = express();
 const port = 18700;
@@ -25,6 +26,7 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 app.use('/klines', KlinesService);
+app.use('/simulate', SimulateService);
 
 app.listen(port, () => {
   initCacheDirectory();

@@ -9,3 +9,11 @@ type KlineRow = [
   endTime: number,
   amount: number
 ];
+
+interface KlineBase {
+  startTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
