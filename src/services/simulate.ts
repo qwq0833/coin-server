@@ -86,7 +86,7 @@ const startGridSimulate = (
   // 仓位数额 (BUSD) = 总资产 / 仓位数量
   const positionAmount = Math.floor(totalAsset / positionCount);
 
-  const transaction = gridSimulate(klines, startPrice, interval, positionAmount);
+  const transaction = gridSimulate(klines, startPrice, interval, positionAmount, positionCount);
   return {
     interval: `${interval} BUSD`,
     positionCount,
@@ -117,8 +117,15 @@ const getKlineBaseObject = (kline: KlineRow): KlineBase => {
  * @param deficit 最大浮动亏损 (BUSD)
  * @param interval 交易间隔 (BUSD)
  * @param positionAmount 仓位数额 (BUSD)
+ * @param positionCount 仓位数量
  */
-const gridSimulate = (klines: KlineRow[], startPrice: number, interval: number, positionAmount: number) => {
+const gridSimulate = (
+  klines: KlineRow[],
+  startPrice: number,
+  interval: number,
+  positionAmount: number,
+  positionCount: number
+) => {
   // 交易记录
   const transaction: Transaction[] = [];
 
@@ -135,8 +142,9 @@ const gridSimulate = (klines: KlineRow[], startPrice: number, interval: number, 
     const low = kline[3];
     const close = kline[4];
 
-    // 最低价小于预期买入价格才能买入
-    if (low < nextBuyPrice) {
+    const uncompletedCount = transaction.filter(item => !item.sell).length;
+    // 最低价小于预期买入价格, 且仓位数量未满时才能买入
+    if (low < nextBuyPrice && uncompletedCount < positionCount) {
       const rate = parseFloat((positionAmount / nextBuyPrice).toFixed(2));
       transaction.push({
         meta: {
