@@ -41,6 +41,8 @@ router.get('/', async (req: Request, res: Response) => {
   const startPrice = Math.floor(klines[0][1] - 1);
   // 最大亏损差额 (BUSD) = 建仓价格 - 预期最低价格
   const deficit = startPrice - floorPrice;
+  // 收盘价 (BUSD) = 最后一根 K 线的收盘价
+  const closePrice = klines[klines.length - 1][4];
 
   // 模拟交易
   const summaries = [];
@@ -64,6 +66,7 @@ router.get('/', async (req: Request, res: Response) => {
       principal: `${principal} BUSD`,
       totalAsset: `${totalAsset} BUSD`, // 🧮
       startPrice: `${startPrice} BUSD`, // 🧮
+      closePrice: `${closePrice} BUSD`, // 🧮
       floorPrice: `${floorPrice} BUSD`,
       deficit: `${deficit} BUSD`, // 🧮
       interval: interval ? `${interval} BUSD` : `${startInterval} ~ ${endInterval} BUSD`
@@ -219,12 +222,16 @@ const summary = (transaction: Transaction[], duration: number, principal: number
   // 总收益率 = 总收益 / 本金
   const totalProfitRate = parseFloat(((totalProfit / 7.1 / principal) * 100).toFixed(2));
 
+  // 需要手续费的交易次数
+  const feeCount = transaction.filter(trade => trade.buy.kline.open < trade.buy.price).length;
+
   return {
     summary: {
       count: `${count} 笔`,
       completedCount: `${completedCount} 笔`,
       uncompletedCount: `${uncompletedCount} 笔`,
       countPerday: `${Math.floor(count / duration)} 笔/天`,
+      feedCount: `${feeCount} 笔`,
       totalProfit: `${totalProfit} 元`,
       completedProfit: `${completedProfit} 元`,
       uncompletedProfit: `${uncompletedProfit} 元`,
