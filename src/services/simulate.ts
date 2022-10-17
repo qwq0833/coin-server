@@ -145,9 +145,9 @@ const gridSimulate = (
     const low = kline[3];
     const close = kline[4];
 
-    const uncompletedCount = transaction.filter(item => !item.sell).length;
-    // 最低价小于预期买入价格, 且仓位数量未满时才能买入
-    if (low < nextBuyPrice && uncompletedCount < positionCount) {
+    let uncompletedCount = transaction.filter(item => !item.sell).length;
+    // 只要符合最低价小于预期买入价格, 且仓位数量未满则一直买入
+    while (low < nextBuyPrice && uncompletedCount < positionCount) {
       const rate = parseFloat((positionAmount / nextBuyPrice).toFixed(2));
       transaction.push({
         meta: {
@@ -164,6 +164,7 @@ const gridSimulate = (
       });
       // 买入后, 下一次买入价格 = 当前买入价格 - 交易间隔
       nextBuyPrice -= interval;
+      uncompletedCount++;
     }
 
     // 检查所有仓位是否有卖出机会
