@@ -134,6 +134,8 @@ const gridSimulate = (
 
   // 下一次买入价格
   let nextBuyPrice = startPrice;
+  // 下一次买入价格中由买入交易决定的部分
+  let nextBuyPriceBackup = startPrice;
 
   /**
    * 遍历 K 线数据
@@ -141,6 +143,7 @@ const gridSimulate = (
    */
   klines.forEach(kline => {
     const timestamp = kline[0];
+    const open = kline[1];
     const high = kline[2];
     const low = kline[3];
     const close = kline[4];
@@ -148,6 +151,11 @@ const gridSimulate = (
     let uncompletedCount = transaction.filter(item => !item.sell).length;
     // 只要符合最低价小于预期买入价格, 且仓位数量未满则一直买入
     while (low < nextBuyPrice && uncompletedCount < positionCount) {
+      // 如果预期买入价格大于开盘价, 且由买入交易决定的部分小于开盘价, 则使用买入交易决定的部分买入
+      if (open <= nextBuyPrice && open >= nextBuyPriceBackup) {
+        nextBuyPrice = nextBuyPriceBackup;
+      }
+
       const rate = parseFloat((positionAmount / nextBuyPrice).toFixed(2));
       transaction.push({
         meta: {
@@ -164,6 +172,7 @@ const gridSimulate = (
       });
       // 买入后, 下一次买入价格 = 当前买入价格 - 交易间隔
       nextBuyPrice -= interval;
+      nextBuyPriceBackup = nextBuyPrice;
       uncompletedCount++;
     }
 
