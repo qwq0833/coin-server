@@ -33,6 +33,9 @@ router.get('/', async (req: Request, res: Response) => {
   // 预期最低价格 (BUSD)
   const floorPrice = Number(req.query.floor_price);
 
+  // 完成度 (0.1 - 1)
+  const progress = Number(req.query.progress) || 1;
+
   // 获取 K 线数据
   const { data } = await axios.get('http://localhost:18700/klines', { params: { from: start, to: end } });
   const klines = data.klines as KlineRow[];
@@ -47,11 +50,11 @@ router.get('/', async (req: Request, res: Response) => {
   // 模拟交易
   const summaries = [];
   if (interval) {
-    const summary = startGridSimulate(klines, startPrice, interval, deficit, totalAsset, duration, principal);
+    const summary = startGridSimulate(klines, startPrice, interval, deficit, totalAsset, duration, principal, progress);
     summaries.push(summary);
   } else {
     for (let i = startInterval; i <= endInterval; i++) {
-      const summary = startGridSimulate(klines, startPrice, i, deficit, totalAsset, duration, principal);
+      const summary = startGridSimulate(klines, startPrice, i, deficit, totalAsset, duration, principal, progress);
       // @ts-ignore
       delete summary.transaction;
       summaries.push(summary);
@@ -69,6 +72,7 @@ router.get('/', async (req: Request, res: Response) => {
       closePrice: `${closePrice} BUSD`, // 🧮
       floorPrice: `${floorPrice} BUSD`,
       deficit: `${deficit} BUSD`, // 🧮
+      progress: `${progress * 100}%`,
       interval: interval ? `${interval} BUSD` : `${startInterval} ~ ${endInterval} BUSD`
     },
     summaries
@@ -82,14 +86,15 @@ const startGridSimulate = (
   deficit: number,
   totalAsset: number,
   duration: number,
-  principal: number
+  principal: number,
+  progress: number
 ) => {
   // 仓位数量 = 浮动价格 / 交易间隔
   const positionCount = Math.floor(deficit / interval);
   // 仓位数额 (BUSD) = 总资产 / 仓位数量
   const positionAmount = Math.floor(totalAsset / positionCount);
 
-  const transaction = gridSimulate(klines, startPrice, interval, positionAmount, positionCount);
+  const transaction = gridSimulate(klines, startPrice, interval, positionAmount, positionCount, progress);
   return {
     interval: `${interval} BUSD`,
     positionCount,
@@ -121,13 +126,15 @@ const getKlineBaseObject = (kline: KlineRow): KlineBase => {
  * @param interval 交易间隔 (BUSD)
  * @param positionAmount 仓位数额 (BUSD)
  * @param positionCount 仓位数量
+ * @param progress 完成度 (0.1 - 1)
  */
 const gridSimulate = (
   klines: KlineRow[],
   startPrice: number,
   interval: number,
   positionAmount: number,
-  positionCount: number
+  positionCount: number,
+  progress: number
 ) => {
   // 交易记录
   const transaction: Transaction[] = [];
@@ -181,17 +188,17 @@ const gridSimulate = (
       // 如果已经卖出、或者刚刚买入, 则跳过
       if (trade.sell || trade.buy.timestamp === timestamp) return;
       // 最高价大于预期卖出价格才能卖出
-      const sellPrice = trade.buy.price + interval;
+      const sellPrice = trade.buy.price + interval * progress;
       if (high > sellPrice) {
-        trade.meta.profit = parseFloat((trade.meta.rate * interval).toFixed(2));
+        trade.meta.profit = parseFloat((trade.meta.rate * interval * progress).toFixed(2));
         trade.sell = {
           price: sellPrice,
           timestamp,
           time: dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss'),
           kline: getKlineBaseObject(kline)
         };
-        // 卖出后, 下一次买入价格 = 当前卖出价格 - 交易间隔
-        nextBuyPrice = sellPrice - interval;
+        // 卖出后, 下一次买入价格 = 当前卖出价格 - 交易间隔 (即当前仓位原本的买入价格)
+        nextBuyPrice = trade.buy.price;
       } else {
         // 如果没有卖出则根据收盘价格计算收益
         trade.meta.profit = parseFloat((trade.meta.rate * (close - trade.buy.price)).toFixed(2));
