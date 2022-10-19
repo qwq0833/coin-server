@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs/promises';
+import path from 'path';
 import axios from 'axios';
 import dayjs from 'dayjs';
 
@@ -35,6 +37,7 @@ interface ExArgs extends Args {
  * @query floor_price 最低价格 (BUSD)
  * @query progress 交易进度 (0.1-1) - 可选, 默认: 1
  * @query strict 严格买入模式 (true/false) - 可选, 默认: true
+ * @query charts 是否返回图表数据 (true/false) - 可选, 默认: false
  */
 router.get('/', async (req: Request, res: Response) => {
   if (!req.query.start) return res.status(400).json({ errMessage: 'Missing start parameter' });
@@ -107,7 +110,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
   }
 
-  return res.json({
+  const result = {
     params: {
       start: `${start} 08:00:00`,
       end: `${end} 08:00:00`,
@@ -119,10 +122,19 @@ router.get('/', async (req: Request, res: Response) => {
       floorPrice: `${floorPrice} BUSD`,
       deficit: `${deficit} BUSD`, // 🧮
       progress: `${progress * 100}%`,
-      interval: interval ? `${interval} BUSD` : `${startInterval} ~ ${endInterval} BUSD`
+      interval: interval ? `${interval} BUSD` : `${startInterval} ~ ${endInterval} BUSD`,
+      strict
     },
     summaries
-  });
+  };
+
+  if (req.query.charts === 'true') {
+    const template = await fs.readFile(path.join(__dirname, '../../template/echarts.html'), 'utf-8');
+    const html = template.toString();
+    return res.send(html.replace("'{{ data }}'", JSON.stringify(result)));
+  } else {
+    return res.json(result);
+  }
 });
 
 /**
