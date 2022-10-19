@@ -4,8 +4,37 @@ import dayjs from 'dayjs';
 
 const router = Router();
 
+interface Args {
+  start: string;
+  end: string;
+  duration: number;
+  principal: number;
+  totalAsset: number;
+  interval: number;
+  floorPrice: number;
+  progress: number;
+  strict: boolean;
+  startPrice: number;
+  deficit: number;
+  closePrice: number;
+}
+
+interface ExArgs extends Args {
+  positionCount: number;
+  positionAmount: number;
+}
+
 /**
  * 模拟预期最低价格的交易
+ * @query start 开始时间, 格式: YYYY-MM-DD
+ * @query end 结束时间, 格式: YYYY-MM-DD
+ * @query principal 本金 (BUSD)
+ * @query interval 交易间隔 (BUSD) - 可选
+ * @query start_interval 开始交易间隔 (BUSD) - 可选
+ * @query end_interval 结束交易间隔 (BUSD) - 可选
+ * @query floor_price 最低价格 (BUSD)
+ * @query progress 交易进度 (0.1-1) - 可选, 默认: 1
+ * @query strict 严格买入模式 (true/false) - 可选, 默认: true
  */
 router.get('/', async (req: Request, res: Response) => {
   if (!req.query.start) return res.status(400).json({ errMessage: 'Missing start parameter' });
@@ -49,34 +78,29 @@ router.get('/', async (req: Request, res: Response) => {
   // 收盘价 (BUSD) = 最后一根 K 线的收盘价
   const closePrice = klines[klines.length - 1][4];
 
+  const args: Args = {
+    start,
+    end,
+    duration,
+    principal,
+    totalAsset,
+    interval,
+    floorPrice,
+    progress,
+    strict,
+    startPrice,
+    deficit,
+    closePrice
+  };
+
   // 模拟交易
   const summaries = [];
   if (interval) {
-    const summary = startGridSimulate(
-      klines,
-      startPrice,
-      interval,
-      deficit,
-      totalAsset,
-      duration,
-      principal,
-      progress,
-      strict
-    );
+    const summary = startGridSimulate(klines, args);
     summaries.push(summary);
   } else {
     for (let i = startInterval; i <= endInterval; i++) {
-      const summary = startGridSimulate(
-        klines,
-        startPrice,
-        i,
-        deficit,
-        totalAsset,
-        duration,
-        principal,
-        progress,
-        strict
-      );
+      const summary = startGridSimulate(klines, { ...args, interval: i });
       // @ts-ignore
       delete summary.transaction;
       summaries.push(summary);
@@ -101,67 +125,32 @@ router.get('/', async (req: Request, res: Response) => {
   });
 });
 
-const startGridSimulate = (
-  klines: KlineRow[],
-  startPrice: number,
-  interval: number,
-  deficit: number,
-  totalAsset: number,
-  duration: number,
-  principal: number,
-  progress: number,
-  strict: boolean
-) => {
+/**
+ * 开始模拟网格交易
+ */
+const startGridSimulate = (klines: KlineRow[], args: Args) => {
+  const { deficit, interval, totalAsset } = args;
   // 仓位数量 = 浮动价格 / 交易间隔
   const positionCount = Math.floor(deficit / interval);
   // 仓位数额 (BUSD) = 总资产 / 仓位数量
   const positionAmount = Math.floor(totalAsset / positionCount);
-
-  const transaction = gridSimulate(klines, startPrice, interval, positionAmount, positionCount, progress, strict);
+  const transaction = gridSimulate(klines, { ...args, positionCount, positionAmount });
   return {
     interval: `${interval} BUSD`,
     positionCount,
     positionAmount: `${positionAmount} BUSD`,
-    ...summary(transaction, duration, principal)
-  };
-};
-
-/**
- * K 线数据转换为对象格式
- * @param kline K 线数据
- */
-const getKlineBaseObject = (kline: KlineRow): KlineBase => {
-  const [startTime, open, high, low, close] = kline;
-  return {
-    startTime,
-    open,
-    high,
-    low,
-    close
+    ...summary(transaction, args)
   };
 };
 
 /**
  * 模拟网格交易
- * @param klines K 线数据
- * @param startPrice 建仓价格 (BUSD)
- * @param deficit 最大浮动亏损 (BUSD)
- * @param interval 交易间隔 (BUSD)
- * @param positionAmount 仓位数额 (BUSD)
- * @param positionCount 仓位数量
- * @param progress 完成度 (0.1 - 1)
  */
-const gridSimulate = (
-  klines: KlineRow[],
-  startPrice: number,
-  interval: number,
-  positionAmount: number,
-  positionCount: number,
-  progress: number,
-  strict: boolean
-) => {
+const gridSimulate = (klines: KlineRow[], args: ExArgs) => {
   // 交易记录
   const transaction: Transaction[] = [];
+
+  const { startPrice, positionCount, positionAmount, interval, progress, strict } = args;
 
   // 下一次买入价格
   let nextBuyPrice = startPrice;
@@ -240,7 +229,9 @@ const gridSimulate = (
  * @param duration 交易时长 (天)
  * @param principal 本金 (BUSD)
  */
-const summary = (transaction: Transaction[], duration: number, principal: number) => {
+const summary = (transaction: Transaction[], args: Args) => {
+  const { principal, duration } = args;
+
   // 交易次数
   const count = transaction.length;
   // 已完成交易次数
@@ -283,6 +274,21 @@ const summary = (transaction: Transaction[], duration: number, principal: number
       riskRate
     },
     transaction
+  };
+};
+
+/**
+ * K 线数据转换为对象格式
+ * @param kline K 线数据
+ */
+const getKlineBaseObject = (kline: KlineRow): KlineBase => {
+  const [startTime, open, high, low, close] = kline;
+  return {
+    startTime,
+    open,
+    high,
+    low,
+    close
   };
 };
 
