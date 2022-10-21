@@ -27,18 +27,18 @@
 
       const option = {
         title: {
-          top: 'bottom',
           left: 'center',
           text: `在 ${params.start.slice(5, 10)} 至 ${params.end.slice(5, 10)} 期间 ${params.duration}的收益
-      建仓价格 ${parseFloat(params.startPrice)}, 平仓价格 ${parseFloat(params.closePrice)}, 卖出完成度 ${
-            params.progress
-          }, ${params.strict ? '严格买入' : '非严格买入'}
-      本金 ${parseFloat(params.principal)}, 预期最低价格 ${parseFloat(params.floorPrice)}`,
+           建仓价格 ${parseFloat(params.startPrice)}, 平仓价格 ${parseFloat(params.closePrice)} (本金 ${parseFloat(
+            params.principal
+          )}, 预期最低价格 ${parseFloat(params.floorPrice)})`,
           textStyle: {
-            fontSize: 14
+            fontSize: 16
           }
         },
-        legend: {},
+        legend: {
+          top: 'bottom'
+        },
         tooltip: {
           trigger: 'axis'
         },
@@ -49,14 +49,13 @@
           }
         },
         grid: [
-          { right: sizeValue, bottom: sizeValue },
-          { left: sizeValue, bottom: sizeValue },
-          { right: sizeValue, top: sizeValue },
-          { left: sizeValue, top: sizeValue }
+          { top: '10%', bottom: '57%' },
+          { top: '57%', bottom: '10%' }
         ],
         xAxis: [
           {
             type: 'category',
+            gridIndex: 0,
             name: '间隔',
             data: summaries.map(item => item.interval)
           },
@@ -65,30 +64,18 @@
             gridIndex: 1,
             name: '间隔',
             data: summaries.map(item => item.interval)
-          },
-          {
-            type: 'category',
-            gridIndex: 2,
-            name: '间隔',
-            data: summaries.map(item => item.interval)
-          },
-          {
-            type: 'category',
-            gridIndex: 3,
-            name: '间隔',
-            data: summaries.map(item => item.interval)
           }
         ],
         yAxis: [
           { type: 'value', gridIndex: 0, name: '收益(元)' },
-          { type: 'value', gridIndex: 1, name: '平均收益(元/天)' },
-          { type: 'value', gridIndex: 2, name: '收益率(%)' },
-          { type: 'value', gridIndex: 3, name: '风险率' }
+          { type: 'value', gridIndex: 0, name: '风险率', splitLine: { show: false }, axisLabel: { show: false } },
+          { type: 'value', gridIndex: 1, name: '平均收益(元/天)' }
         ],
         series: [
           // 第一个图（收益合集）
           {
             name: '总收益',
+            symbol: 'circle',
             type: 'line',
             color: '#84cc16',
             xAxisIndex: 0,
@@ -107,7 +94,7 @@
                     color: 'white',
                     fontWeight: 600,
                     formatter(params) {
-                      return `${Number(params.value).toFixed(1)}`;
+                      return `${Math.floor(params.value)}`;
                     }
                   }
                 },
@@ -119,7 +106,7 @@
                     color: 'white',
                     fontWeight: 600,
                     formatter(params) {
-                      return `${Number(params.value).toFixed(1)}`;
+                      return `${Math.floor(params.value)}`;
                     }
                   }
                 }
@@ -128,6 +115,7 @@
           },
           {
             name: '已完成订单收益',
+            symbol: 'circle',
             type: 'line',
             color: '#22d3ee',
             xAxisIndex: 0,
@@ -139,6 +127,7 @@
           },
           {
             name: '未完成订单收益',
+            symbol: 'circle',
             type: 'line',
             color: '#f43f5e',
             xAxisIndex: 0,
@@ -148,12 +137,31 @@
             },
             data: data.summaries.map(item => parseFloat(item.summary.uncompletedProfit))
           },
+          // 第一个图（风险率）
+          {
+            name: '风险率',
+            symbol: 'circle',
+            type: 'line',
+            xAxisIndex: 0,
+            yAxisIndex: 1,
+            color: '#f97316',
+            data: summaries.map(item => parseFloat(item.summary.riskRate)),
+            markLine: {
+              data: [
+                { name: 'Safe', yAxis: 2, lineStyle: { color: '#10b981' } },
+                { name: 'Normal', yAxis: 1.5, lineStyle: { color: '#0ea5e9' } },
+                { name: 'Danger', yAxis: 1.3, lineStyle: { color: '#f97316' } },
+                { name: 'Boom', yAxis: 1.1, lineStyle: { color: '#ef4444' } }
+              ]
+            }
+          },
           // 第二个图（平均收益）
           {
             name: '平均收益',
+            symbol: 'circle',
             type: 'line',
             xAxisIndex: 1,
-            yAxisIndex: 1,
+            yAxisIndex: 2,
             color: '#818cf8',
             data: summaries.map(item => parseFloat(item.summary.averageProfit)),
             markPoint: {
@@ -186,45 +194,11 @@
             },
             markLine: {
               data: [
+                { name: 'LowTarget', yAxis: 100, lineStyle: { color: '#64748B' } },
+                { name: 'LowTarget', yAxis: 150, lineStyle: { color: '#0ea5e9' } },
                 { name: 'Target', yAxis: 200, lineStyle: { color: '#10b981' } },
-                { name: 'ExTarget', yAxis: 400, lineStyle: { color: '#6366f1' } }
-              ]
-            }
-          },
-          // 第三个图（收益率）
-          {
-            name: '收益率',
-            type: 'line',
-            xAxisIndex: 2,
-            yAxisIndex: 2,
-            color: '#ec4899',
-            data: summaries.map(item => parseFloat(item.summary.totalProfitRate)),
-            markPoint: {
-              data: [
-                { type: 'max', name: 'Max', label: { fontSize: 10, color: 'white', fontWeight: 600 } },
-                { type: 'min', name: 'Min', label: { fontSize: 10, color: 'white', fontWeight: 600 } }
-              ]
-            }
-          },
-          // 第四个图（风险率）
-          {
-            name: '风险率',
-            type: 'line',
-            xAxisIndex: 3,
-            yAxisIndex: 3,
-            color: '#f97316',
-            data: summaries.map(item => parseFloat(item.summary.riskRate)),
-            markPoint: {
-              data: [
-                { type: 'max', name: 'Max', label: { fontSize: 10, color: 'white', fontWeight: 600 } },
-                { type: 'min', name: 'Min', label: { fontSize: 10, color: 'white', fontWeight: 600 } }
-              ]
-            },
-            markLine: {
-              data: [
-                { name: 'Safe', yAxis: 2, lineStyle: { color: '#10b981' } },
-                { name: 'Normal', yAxis: 1.5, lineStyle: { color: '#0ea5e9' } },
-                { name: 'Boom', yAxis: 1.3, lineStyle: { color: '#ef4444' } }
+                { name: 'ExTarget', yAxis: 300, lineStyle: { color: '#ec4899' } },
+                { name: 'SupperTarget', yAxis: 400, lineStyle: { color: '#6366f1' } }
               ]
             }
           }
