@@ -19,6 +19,7 @@ interface Args {
   startPrice: number;
   deficit: number;
   closePrice: number;
+  lossRate: number;
 }
 
 interface ExArgs extends Args {
@@ -38,6 +39,7 @@ interface ExArgs extends Args {
  * @query progress 交易进度 (0.1-1) - 可选, 默认: 1
  * @query strict 严格买入模式 (true/false) - 可选, 默认: true
  * @query charts 是否返回图表数据 (true/false) - 可选, 默认: false
+ * @query loss_rate 亏损率 (0.1-1) - 可选, 默认: 0, 不止损
  */
 router.get('/', async (req: Request, res: Response) => {
   if (!req.query.start) return res.status(400).json({ errMessage: 'Missing start parameter' });
@@ -69,6 +71,8 @@ router.get('/', async (req: Request, res: Response) => {
   const progress = Number(req.query.progress) || 1;
   // 卖出后的下一次买入价格是否严格以买入价格为准 (默认: true)
   const strict = req.query.strict === 'false' ? false : true;
+  // 亏损率 (0.1 - 1)
+  const lossRate = Number(req.query.loss_rate) || 0;
 
   // 获取 K 线数据
   const { data } = await axios.get('http://localhost:18700/klines', { params: { from: start, to: end } });
@@ -93,7 +97,8 @@ router.get('/', async (req: Request, res: Response) => {
     strict,
     startPrice,
     deficit,
-    closePrice
+    closePrice,
+    lossRate
   };
 
   // 模拟交易
@@ -162,7 +167,7 @@ const gridSimulate = (klines: KlineRow[], args: ExArgs) => {
   // 交易记录
   const transaction: Transaction[] = [];
 
-  const { startPrice, positionCount, positionAmount, interval, progress, strict } = args;
+  const { startPrice, positionCount, positionAmount, interval, progress, strict, lossRate } = args;
 
   // 下一次买入价格
   let nextBuyPrice = startPrice;
@@ -214,17 +219,27 @@ const gridSimulate = (klines: KlineRow[], args: ExArgs) => {
       if (trade.sell || trade.buy.timestamp === timestamp) return;
       // 最高价大于预期卖出价格才能卖出
       const sellPrice = trade.buy.price + interval * progress;
-      if (high > sellPrice) {
-        trade.meta.profit = parseFloat((trade.meta.rate * interval * progress).toFixed(2));
+      // 最低价小于止损价格则强制卖出
+      const stopPrice = trade.buy.price - interval * lossRate;
+      const isStop = Boolean(lossRate) && low < stopPrice;
+
+      if (high > sellPrice || isStop) {
+        const profit = isStop ? trade.meta.rate * interval * lossRate * -1 : trade.meta.rate * interval * progress;
+        trade.meta.profit = parseFloat(profit.toFixed(2));
+
         trade.sell = {
-          price: sellPrice,
+          price: isStop ? stopPrice : sellPrice,
           timestamp,
           time: dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss'),
           kline: getKlineBaseObject(kline)
         };
-        // 严格模式下, 下一次买入价格 = 完整间隔的卖出价格 - 交易间隔 (即当前仓位原本的买入价格)
+        // 严格模式下, 下一次买入价格 = 完整间隔的卖出价格 - 交易间隔
         // 非严格模式下, 下一次买入价格 = 当前卖出价格 - 交易间隔
-        nextBuyPrice = strict ? trade.buy.price : sellPrice - interval;
+        // nextBuyPrice = strict ? trade.buy.price : sellPrice - interval;
+
+        // 如果是止损, 则下一次买入价格 = 完整间隔的卖出价格 - (比例向上取整 + 1) * 交易间隔 (即当前仓位原本的买入价格 - 交易间隔)
+        // 如果是盈利， 则下一次买入价格 = 完整间隔的卖出价格 - 交易间隔 (即当前仓位原本的买入价格)
+        nextBuyPrice = isStop ? trade.buy.price - interval * Math.round(lossRate + 1) : trade.buy.price;
       } else {
         // 如果没有卖出则根据收盘价格计算收益
         trade.meta.profit = parseFloat((trade.meta.rate * (close - trade.buy.price)).toFixed(2));
